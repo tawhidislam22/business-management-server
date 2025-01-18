@@ -27,36 +27,95 @@ async function run() {
     await client.connect();
     const assetsCollection = client.db('assetManagementDb').collection('assets');
     const myAssetsCollection = client.db('assetManagementDb').collection('myAssets');
+    const teamCollection = client.db('assetManagementDb').collection('myTeam')
     //assets related api
-    app.get('/assets', async (req, res) => {
-      let result = null
-      if (req.query) {
-        const { search, page = 1, limit = 10 } = req.query;
-
-        // Build the query object based on parameters
+    app.get("/assets", async (req, res) => {
+      try {
+        const { search = "", type = "all", page = 1, limit = 10 } = req.query;
         const query = {
-          ...(search ? { title: { $regex: search, $options: 'i' } } : {}), // Case-insensitive search
-          // Filter by email if provided
+          name: { $regex: search, $options: "i" }, // Case-insensitive search
+          ...(type !== "all" && { type }), // Filter by type if specified
         };
-        const skip = (page - 1) * limit;
-        result = await assetsCollection.find(query).sort({ deadline: 1 }).skip(skip).limit(parseInt(limit)).toArray()
-        const total = await assetsCollection.countDocuments(query);
 
-        // Fetch posts from the database with filters, sorting, and pagination
-        res.status(200).json({
-          assets: result,
-          total,
-          page: parseInt(page),
-          totalPages: Math.ceil(total / limit),
-        });
+        const totalAssets = await assetsCollection.countDocuments(query);
+        const assets = await assetsCollection
+          .find(query)
+          .skip((page - 1) * limit)
+          .limit(parseInt(limit))
+          .toArray();
+
+        res.json({ assets, totalPages: Math.ceil(totalAssets / limit) });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to fetch assets." });
       }
-      else {
-        result = await volunteersCollection.find().sort().toArray()
-        res.send(result)
+    });
+
+    // Add a new asset
+    app.post("/assets", async (req, res) => {
+      try {
+        const { name, type, quantity, dateAdded } = req.body;
+        if (!name || !type || !quantity || !dateAdded) {
+          return res.status(400).json({ error: "All fields are required." });
+        }
+        const newAsset = {
+          name,
+          type,
+          quantity: parseInt(quantity),
+          dateAdded: new Date(dateAdded),
+          availability: true,
+        };
+        const result = await assetCollection.insertOne(newAsset);
+        res.status(201).json({ message: "Asset added successfully.", id: result.insertedId });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to add asset." });
       }
+    });
 
-    })
+    // Update an asset
+    app.put("/assets/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { name, type, quantity } = req.body;
+        const updates = {
+          ...(name && { name }),
+          ...(type && { type }),
+          ...(quantity && { quantity: parseInt(quantity) }),
+        };
 
+        const result = await assetCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updates }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ error: "Asset not found." });
+        }
+
+        res.json({ message: "Asset updated successfully." });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to update asset." });
+      }
+    });
+
+
+    // Delete an asset
+    app.delete("/assets/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await assetsCollection.deleteOne({ _id: new ObjectId(id) });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ error: "Asset not found." });
+        }
+        res.json({ message: "Asset deleted successfully." });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to delete asset." });
+      }
+    });
     // Get My Assets with Filters
     app.get("/myAssets/:email", async (req, res) => {
       try {
@@ -152,6 +211,69 @@ async function run() {
       }
     });
 
+    //team related api
+    app.get("/team", async (req, res) => {
+      try {
+        const { search = "", role = "all" } = req.query;
+
+        const query = {
+          name: { $regex: search, $options: "i" }, // Case-insensitive search
+          ...(role !== "all" && { role }), // Filter by role if specified
+        };
+
+        const members = await teamCollection.find(query).toArray();
+        res.json(members);
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to fetch team members." });
+      }
+    });
+
+    // Add a new team member
+    app.post("/team", async (req, res) => {
+      try {
+        const newMember = req.body;
+        const result = await teamCollection.insertOne(newMember);
+        res.status(201).json({ message: "Team member added successfully.", id: result.insertedId });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to add team member." });
+      }
+    });
+
+    // Update a team member
+    app.put("/team/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updates = req.body;
+        const result = await teamCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updates }
+        );
+        if (result.modifiedCount === 0) {
+          return res.status(404).json({ error: "Team member not found." });
+        }
+        res.json({ message: "Team member updated successfully." });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to update team member." });
+      }
+    });
+
+    // Delete a team member
+    app.delete("/team/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await teamCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ error: "Team member not found." });
+        }
+        res.json({ message: "Team member deleted successfully." });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to delete team member." });
+      }
+    });
 
 
 
