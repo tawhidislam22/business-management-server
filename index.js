@@ -110,27 +110,39 @@ async function run() {
 
 
     // Return Asset
+    // Return Asset
     app.put("/myAssets/:email/:assetId/return", async (req, res) => {
       try {
         const { email, assetId } = req.params;
 
+        // Find the asset in the user's assets collection
         const asset = await myAssetsCollection.findOne({
           _id: new ObjectId(assetId),
           userEmail: email,
         });
+
         if (!asset) {
           return res.status(404).json({ message: "Asset not found." });
         }
 
-        if (asset.type !== "returnable" || asset.status !== "approved") {
-          return res
-            .status(400)
-            .json({ message: "This asset cannot be returned." });
+        if (asset.type !== "Returnable" || asset.status !== "approved") {
+          return res.status(400).json({ message: "This asset cannot be returned." });
         }
 
-        await assetsCollection.updateOne(
+        // Update the status in myAssetsCollection to 'returned'
+        const updateResult = await myAssetsCollection.updateOne(
           { _id: new ObjectId(assetId) },
-          { $set: { status: "returned", availability: true } }
+          { $set: { status: "returned" } }
+        );
+
+        if (updateResult.modifiedCount === 0) {
+          return res.status(500).json({ message: "Failed to update asset status." });
+        }
+
+        // Optionally update availability in assetsCollection
+        const availabilityUpdate = await assetsCollection.updateOne(
+          { _id: new ObjectId(assetId) },
+          { $set: { availability: true } }
         );
 
         res.json({ message: "Asset returned successfully." });
@@ -139,6 +151,7 @@ async function run() {
         res.status(500).json({ message: "Failed to return the asset." });
       }
     });
+
 
 
 
