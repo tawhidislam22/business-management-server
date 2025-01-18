@@ -3,7 +3,7 @@ const app = express()
 const cors = require('cors');
 require('dotenv').config();
 const port = process.env.PORT || 5000
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 //middle ware
 app.use(cors())
@@ -75,30 +75,30 @@ async function run() {
         res.status(500).json({ message: "Failed to fetch user assets." });
       }
     });
+    app.post("/myAssets", async (req, res) => {
+      const asset = req.body;
+      const result = await myAssetsCollection.insertOne(asset)
+      res.send(result)
+    })
 
-    // Cancel Asset Request
-    app.put("/myAssets/:email/:assetId", async (req, res) => {
+
+    // Cancel Asset Request (DELETE)
+    app.delete("/myAssets/:email/:assetId", async (req, res) => {
       try {
         const { email, assetId } = req.params;
 
-        const asset = await myAssetsCollection.findOne({
+        // Find and delete the asset in myAssetsCollection
+        const result = await myAssetsCollection.deleteOne({
           _id: new ObjectId(assetId),
           userEmail: email,
+          status: "pending", // Ensure only pending requests can be deleted
         });
-        if (!asset) {
-          return res.status(404).json({ message: "Asset not found." });
-        }
 
-        if (asset.status !== "pending") {
+        if (result.deletedCount === 0) {
           return res
             .status(400)
-            .json({ message: "Only pending requests can be canceled." });
+            .json({ message: "Failed to cancel the request. It might not exist or is not pending." });
         }
-
-        await assetsCollection.updateOne(
-          { _id: new ObjectId(assetId) },
-          { $set: { status: "canceled" } }
-        );
 
         res.json({ message: "Asset request canceled successfully." });
       } catch (error) {
@@ -106,6 +106,8 @@ async function run() {
         res.status(500).json({ message: "Failed to cancel the request." });
       }
     });
+
+
 
     // Return Asset
     app.put("/myAssets/:email/:assetId/return", async (req, res) => {
