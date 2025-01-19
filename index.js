@@ -1,6 +1,7 @@
 const express = require('express');
 const app = express()
 const cors = require('cors');
+const jwt=require('jsonwebtoken')
 require('dotenv').config();
 const port = process.env.PORT || 5000
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -8,7 +9,20 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 //middle ware
 app.use(cors())
 app.use(express.json())
-
+const verifyToken=(req,res,next)=>{
+  if(!req.headers.authorization){
+    return res.status(401).send({message:'unauthorize access'})
+  }
+  const token=req.headers.authorization.split(' ')[1];
+  jwt.verify(token,process.env.ACCESS_TOKEN_SECRET,(err,decoded)=>{
+    if(err){
+      return res.status(401).send({message:'unauthorize access'})
+    }
+    req.decoded=decoded;
+  })
+  
+  next();
+}
 
 const uri = `mongodb+srv://${process.env.USER_DB}:${process.env.PASS_DB}@cluster0.nj1gb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -29,6 +43,14 @@ async function run() {
     const allRequestsCollection = client.db('assetManagementDb').collection('allRequests');
     const teamCollection = client.db('assetManagementDb').collection('myTeam')
     const employeesCollection = client.db('assetManagementDb').collection('employees')
+    // token related api
+    app.post('/jwt',async(req,res)=>{
+      const user=req.body;
+      const token=jwt.sign(user,process.env.ACCESS_TOKEN_SECRET,{
+        expiresIn:'10h'
+      });
+      res.send({token})
+    })
     //assets related api
     app.get("/assets", async (req, res) => {
       try {
@@ -348,6 +370,33 @@ async function run() {
         res.status(500).json({ error: "Failed to update team member." });
       }
     });
+    // POST to add a new employee
+    app.post("/employees", async (req, res) => {
+      const { name, email, status, department, dob, image } = req.body;
+
+      if (!name || !email || !status || !department || !dob || !image) {
+        return res.status(400).json({ message: "All fields are required." });
+      }
+
+      const newEmployee = {
+        name,
+        email,
+        status,
+        department,
+        dob,
+        image,
+        createdAt: new Date(),
+      };
+
+      try {
+        const result = await employeesCollection.insertOne(newEmployee);
+        res.status(201).json({ message: "Employee added successfully.", data: result.ops[0] });
+      } catch (error) {
+        console.error("Error adding employee:", error);
+        res.status(500).json({ message: "Failed to add employee." });
+      }
+    });
+
 
     // Delete a team member
     app.delete("/team/:id", async (req, res) => {
