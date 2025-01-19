@@ -23,6 +23,16 @@ const verifyToken=(req,res,next)=>{
   
   next();
 }
+const verifyAdmin=async(req,res,next)=>{
+  const email=req.decoded.email;
+  const query={email:email}
+  const user=await userCollection.findOne(query)
+  const isHr=user?.role==='hr';
+  if(!isHr){
+    return res.status(403).send({message:'forbidden access'})
+  }
+  next()
+}
 
 const uri = `mongodb+srv://${process.env.USER_DB}:${process.env.PASS_DB}@cluster0.nj1gb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -40,6 +50,7 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     const assetsCollection = client.db('assetManagementDb').collection('assets');
+    const userCollection=client.db("assetManagementDb").collection("users")
     const allRequestsCollection = client.db('assetManagementDb').collection('allRequests');
     const teamCollection = client.db('assetManagementDb').collection('myTeam')
     const employeesCollection = client.db('assetManagementDb').collection('employees')
@@ -51,6 +62,53 @@ async function run() {
       });
       res.send({token})
     })
+    //user related api
+    app.get('/users/admin/:email',verifyToken,async(req,res)=>{
+      const email=req.params.email;
+      if(email !==req.params.email){
+        return res.status(403).send({message:'unauthorized access'})
+      }
+      const query={email:email};
+      const user=await userCollection.findOne(query)
+      let admin=false;
+      if(user){
+        admin=user?.role==='admin';
+      }
+      res.send({admin})
+    })
+    app.get('/users',verifyToken,async(req,res)=>{
+
+      const result=await userCollection.find().toArray()
+      res.send(result)
+    })
+    app.post('/users',async(req,res)=>{
+      const user=req.body;
+      const query={email:user.email}
+      const existingUser=await userCollection.insertOne(query)
+      if(existingUser){
+        res.send({message:'user already exist',insertedId:null})
+      }
+      const result=await userCollection.insertOne(user);
+      res.send(result)
+    })
+    app.patch('/users/hr/:id',verifyToken,verifyAdmin,async(req,res)=>{
+      const id=req.params.id;
+      const filter={_id:new ObjectId(id)}
+      const updatedDoc={
+        $set:{
+          role:'admin'
+        }
+      }
+      const result=await userCollection.updateOne(filter,updatedDoc)
+      res.send(result)
+    })
+    app.delete('/users/:id',verifyToken,verifyAdmin,async(req,res)=>{
+      const id=req.params.id;
+      const query={_id:new ObjectId(id)}
+      const result=await userCollection.deleteOne(query)
+      res.send(result)
+    })
+    
     //assets related api
     app.get("/assets", async (req, res) => {
       try {
