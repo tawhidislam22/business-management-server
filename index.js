@@ -27,6 +27,7 @@ async function run() {
     await client.connect();
     const assetsCollection = client.db('assetManagementDb').collection('assets');
     const myAssetsCollection = client.db('assetManagementDb').collection('myAssets');
+    const allRequestsCollection = client.db('assetManagementDb').collection('allRequests');
     const teamCollection = client.db('assetManagementDb').collection('myTeam')
     //assets related api
     app.get("/assets", async (req, res) => {
@@ -119,7 +120,7 @@ async function run() {
       }
     });
     // Get My Assets with Filters
-    app.get("/myAssets/:email", async (req, res) => {
+    app.get("/allRequests/:email", async (req, res) => {
       try {
         const { email } = req.params;
         const { search = "", status = "all", type = "all" } = req.query;
@@ -129,7 +130,7 @@ async function run() {
         if (status !== "all") query.status = status;
         if (type !== "all") query.type = type;
 
-        const assets = await myAssetsCollection.find(query).toArray();
+        const assets = await allRequestsCollection.find(query).toArray();
         res.json(assets);
       } catch (error) {
         console.error("Error fetching user assets:", error);
@@ -138,18 +139,18 @@ async function run() {
     });
     app.post("/myAssets", async (req, res) => {
       const asset = req.body;
-      const result = await myAssetsCollection.insertOne(asset)
+      const result = await allRequestsCollection.insertOne(asset)
       res.send(result)
     })
 
 
     // Cancel Asset Request (DELETE)
-    app.delete("/myAssets/:email/:assetId", async (req, res) => {
+    app.delete("/allRequests/:email/:assetId", async (req, res) => {
       try {
         const { email, assetId } = req.params;
 
         // Find and delete the asset in myAssetsCollection
-        const result = await myAssetsCollection.deleteOne({
+        const result = await allRequestsCollection.deleteOne({
           _id: new ObjectId(assetId),
           userEmail: email,
           status: "pending", // Ensure only pending requests can be deleted
@@ -170,14 +171,14 @@ async function run() {
 
 
 
+
     // Return Asset
-    // Return Asset
-    app.put("/myAssets/:email/:assetId/return", async (req, res) => {
+    app.put("/allRequests/:email/:assetId/return", async (req, res) => {
       try {
         const { email, assetId } = req.params;
 
         // Find the asset in the user's assets collection
-        const asset = await myAssetsCollection.findOne({
+        const asset = await allRequestsCollection.findOne({
           _id: new ObjectId(assetId),
           userEmail: email,
         });
@@ -191,7 +192,7 @@ async function run() {
         }
 
         // Update the status in myAssetsCollection to 'returned'
-        const updateResult = await myAssetsCollection.updateOne(
+        const updateResult = await allRequestsCollection.updateOne(
           { _id: new ObjectId(assetId) },
           { $set: { status: "returned" } }
         );
@@ -201,7 +202,7 @@ async function run() {
         }
 
         // Optionally update availability in assetsCollection
-        const availabilityUpdate = await assetsCollection.updateOne(
+        const availabilityUpdate = await allRequestsCollection.updateOne(
           { _id: new ObjectId(assetId) },
           { $set: { availability: true } }
         );
@@ -210,6 +211,92 @@ async function run() {
       } catch (error) {
         console.error("Error returning asset:", error);
         res.status(500).json({ message: "Failed to return the asset." });
+      }
+    });
+    // request related api
+    // Get all asset requests
+    app.get("/allRequests", async (req, res) => {
+      try {
+        const { search = "", status = "all", email = "" } = req.query;
+
+        const query = {};
+        if (search) query.name = { $regex: search, $options: "i" }; // Search by name
+        if (status !== "all") query.status = status; // Filter by status
+        if (email) query.userEmail = email; // Filter by user email
+
+        const requests = await allRequestsCollection.find(query).toArray();
+        res.json(requests);
+      } catch (error) {
+        console.error("Error fetching requests:", error);
+        res.status(500).json({ message: "Failed to fetch requests." });
+      }
+    });
+
+    app.post("/allRequests", async (req, res) => {
+      const { name, type, userEmail, userName, requestDate, additionalNote, status } = req.body;
+
+      if (!name || !type || !userEmail || !requestDate || !status) {
+        return res.status(400).json({ message: "Missing required fields." });
+      }
+
+      const newRequest = {
+        name,
+        type,
+        userEmail,
+        userName,
+        requestDate,
+        additionalNote,
+        status,
+      };
+
+      try {
+        const result = await allRequestsCollection.insertOne(newRequest);
+        res.status(201).json({ message: "Request created successfully", requestId: result.insertedId });
+      } catch (error) {
+        console.error("Error creating request:", error);
+        res.status(500).json({ message: "Failed to create request." });
+      }
+    });
+
+    // Approve a request
+    app.put("/allRequests/:id/approve", async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        const result = await allRequestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "approved" } }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ message: "Request not found." });
+        }
+
+        res.json({ message: "Request approved successfully." });
+      } catch (error) {
+        console.error("Error approving request:", error);
+        res.status(500).json({ message: "Failed to approve the request." });
+      }
+    });
+
+    // Reject a request
+    app.put("/allRequests/:id/reject", async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        const result = await allRequestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "rejected" } }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ message: "Request not found." });
+        }
+
+        res.json({ message: "Request rejected successfully." });
+      } catch (error) {
+        console.error("Error rejecting request:", error);
+        res.status(500).json({ message: "Failed to reject the request." });
       }
     });
 
