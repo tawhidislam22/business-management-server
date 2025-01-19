@@ -84,7 +84,7 @@ async function run() {
           ...(quantity && { quantity: parseInt(quantity) }),
         };
 
-        const result = await assetCollection.updateOne(
+        const result = await assetsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: updates }
         );
@@ -99,6 +99,7 @@ async function run() {
         res.status(500).json({ error: "Failed to update asset." });
       }
     });
+
 
 
     // Delete an asset
