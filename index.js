@@ -26,9 +26,9 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     const assetsCollection = client.db('assetManagementDb').collection('assets');
-    const myAssetsCollection = client.db('assetManagementDb').collection('myAssets');
     const allRequestsCollection = client.db('assetManagementDb').collection('allRequests');
     const teamCollection = client.db('assetManagementDb').collection('myTeam')
+    const employeesCollection = client.db('assetManagementDb').collection('employees')
     //assets related api
     app.get("/assets", async (req, res) => {
       try {
@@ -364,6 +364,41 @@ async function run() {
       }
     });
 
+    // GET all employees with optional filters
+    app.get("/employees", async (req, res) => {
+      const { search, status, department } = req.query;
+
+      const query = {};
+      if (search) query.name = { $regex: search, $options: "i" }; // Search by name
+      if (status && status !== "all") query.status = status;
+      if (department) query.department = department;
+
+      try {
+        const employees = await employeesCollection.find(query).toArray();
+        res.json(employees);
+      } catch (error) {
+        console.error("Error fetching employees:", error);
+        res.status(500).json({ message: "Failed to fetch employees." });
+      }
+    });
+
+    // DELETE an employee
+    app.delete("/employees/:id", async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        const result = await employeesCollection.deleteOne({ _id: new ObjectId(id) });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ message: "Employee not found." });
+        }
+
+        res.json({ message: "Employee deleted successfully." });
+      } catch (error) {
+        console.error("Error deleting employee:", error);
+        res.status(500).json({ message: "Failed to delete the employee." });
+      }
+    });
 
 
     // Send a ping to confirm a successful connection
