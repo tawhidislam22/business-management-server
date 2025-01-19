@@ -65,13 +65,14 @@ async function run() {
           dateAdded: new Date(dateAdded),
           availability: true,
         };
-        const result = await assetCollection.insertOne(newAsset);
+        const result = await assetsCollection.insertOne(newAsset);
         res.status(201).json({ message: "Asset added successfully.", id: result.insertedId });
       } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Failed to add asset." });
       }
     });
+
 
     // Update an asset
     app.put("/assets/:id", async (req, res) => {
