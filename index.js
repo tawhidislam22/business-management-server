@@ -1,7 +1,7 @@
 const express = require('express');
 const app = express()
 const cors = require('cors');
-const jwt=require('jsonwebtoken')
+const jwt = require('jsonwebtoken')
 require('dotenv').config();
 const port = process.env.PORT || 5000
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -9,30 +9,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 //middle ware
 app.use(cors())
 app.use(express.json())
-const verifyToken=(req,res,next)=>{
-  if(!req.headers.authorization){
-    return res.status(401).send({message:'unauthorize access'})
-  }
-  const token=req.headers.authorization.split(' ')[1];
-  jwt.verify(token,process.env.ACCESS_TOKEN_SECRET,(err,decoded)=>{
-    if(err){
-      return res.status(401).send({message:'unauthorize access'})
-    }
-    req.decoded=decoded;
-  })
-  
-  next();
-}
-const verifyAdmin=async(req,res,next)=>{
-  const email=req.decoded.email;
-  const query={email:email}
-  const user=await userCollection.findOne(query)
-  const isHr=user?.role==='hr';
-  if(!isHr){
-    return res.status(403).send({message:'forbidden access'})
-  }
-  next()
-}
+
 
 const uri = `mongodb+srv://${process.env.USER_DB}:${process.env.PASS_DB}@cluster0.nj1gb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -50,72 +27,99 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     const assetsCollection = client.db('assetManagementDb').collection('assets');
-    const userCollection=client.db("assetManagementDb").collection("users")
+    const userCollection = client.db("assetManagementDb").collection("users")
     const allRequestsCollection = client.db('assetManagementDb').collection('allRequests');
     const teamCollection = client.db('assetManagementDb').collection('myTeam')
     const employeesCollection = client.db('assetManagementDb').collection('employees')
     // token related api
-    app.post('/jwt',async(req,res)=>{
-      const user=req.body;
-      const token=jwt.sign(user,process.env.ACCESS_TOKEN_SECRET,{
-        expiresIn:'10h'
+    app.post('/jwt', async (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: '10h'
       });
-      res.send({token})
+      res.send({ token })
     })
     //user related api
-    app.get('/users/admin/:email',verifyToken,async(req,res)=>{
-      const email=req.params.email;
-      if(email !==req.params.email){
-        return res.status(403).send({message:'unauthorized access'})
+    const verifyToken = (req, res, next) => {
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: 'Unauthorized access' });
       }
-      const query={email:email};
-      const user=await userCollection.findOne(query)
-      let admin=false;
-      if(user){
-        admin=user?.role==='admin';
-      }
-      res.send({admin})
-    })
-    app.get('/users',verifyToken,async(req,res)=>{
+      const token = req.headers.authorization.split(' ')[1];
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+          return res.status(401).send({ message: 'Unauthorized access' });
+        }
+        req.decoded = decoded;
+        next(); // Only call next() if verification is successful
+      });
+    };
 
-      const result=await userCollection.find().toArray()
-      res.send(result)
-    })
-    app.post('/users',async(req,res)=>{
-      const user=req.body;
-      const query={email:user.email}
-      const existingUser=await userCollection.insertOne(query)
-      if(existingUser){
-        res.send({message:'user already exist',insertedId:null})
+
+    const verifyHr = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email }
+      const user = await userCollection.findOne(query)
+      const isHr = user?.role === 'hr';
+      if (!isHr) {
+        return res.status(403).send({ message: 'forbidden access' })
       }
-      const result=await userCollection.insertOne(user);
+      next()
+    }
+    app.get('/users/hr/:email',verifyToken,verifyHr, async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: 'Unauthorized access' }); // Add return
+      }
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      let admin = false;
+      if (user) {
+        admin = user?.role === 'hr';
+      }
+      res.send({ admin });
+    });
+
+    app.get('/users',  async (req, res) => {
+
+      const result = await userCollection.find().toArray()
       res.send(result)
-    })
-    app.patch('/users/hr/:id',verifyToken,verifyAdmin,async(req,res)=>{
+    });
+    app.post('/users', async (req, res) => {
+      const user = req.body;
+      const query = { email: user.email };
+      const existingUser = await userCollection.findOne(query); // Corrected this line
+      if (existingUser) {
+        return res.send({ message: 'User already exists', insertedId: null }); // Add return
+      }
+      const result = await userCollection.insertOne(user);
+      res.send(result);
+    });
+
+    app.patch('/users/hr/:id',verifyToken,verifyHr,async(req,res)=>{
       const id=req.params.id;
       const filter={_id:new ObjectId(id)}
       const updatedDoc={
         $set:{
-          role:'admin'
+          role:'hr'
         }
       }
       const result=await userCollection.updateOne(filter,updatedDoc)
       res.send(result)
     })
-    app.delete('/users/:id',verifyToken,verifyAdmin,async(req,res)=>{
-      const id=req.params.id;
-      const query={_id:new ObjectId(id)}
-      const result=await userCollection.deleteOne(query)
+    app.delete('/users/:id',verifyToken,verifyHr, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) }
+      const result = await userCollection.deleteOne(query)
       res.send(result)
     })
-    
+
     //assets related api
     app.get("/assets", async (req, res) => {
       try {
         const { search = "", type = "all", page = 1, limit = 10 } = req.query;
         const query = {
-          name: { $regex: search, $options: "i" }, // Case-insensitive search
-          ...(type !== "all" && { type }), // Filter by type if specified
+          name: { $regex: search, $options: "i" }, 
+          ...(type !== "all" && { type }), 
         };
 
         const totalAssets = await assetsCollection.countDocuments(query);
@@ -133,7 +137,7 @@ async function run() {
     });
 
     // Add a new asset
-    app.post("/assets", async (req, res) => {
+    app.post("/assets", verifyToken, verifyHr, async (req, res) => {
       try {
         const { name, type, quantity, dateAdded } = req.body;
         if (!name || !type || !quantity || !dateAdded) {
@@ -156,7 +160,7 @@ async function run() {
 
 
     // Update an asset
-    app.put("/assets/:id", async (req, res) => {
+    app.put("/assets/:id",verifyToken,verifyHr, async (req, res) => {
       try {
         const { id } = req.params;
         const { name, type, quantity } = req.body;
@@ -185,7 +189,7 @@ async function run() {
 
 
     // Delete an asset
-    app.delete("/assets/:id", async (req, res) => {
+    app.delete("/assets/:id",verifyToken,verifyHr, async (req, res) => {
       try {
         const { id } = req.params;
         const result = await assetsCollection.deleteOne({ _id: new ObjectId(id) });
@@ -200,8 +204,8 @@ async function run() {
       }
     });
     // Get My Assets with Filters
-    app.get("/allRequests/:email", async (req, res) => {
-      try {
+    app.get("/allRequests/:email",verifyToken,verifyHr, async (req, res) => {
+      
         const { email } = req.params;
         const { search = "", status = "all", type = "all" } = req.query;
 
@@ -211,13 +215,10 @@ async function run() {
         if (type !== "all") query.type = type;
 
         const assets = await allRequestsCollection.find(query).toArray();
-        res.json(assets);
-      } catch (error) {
-        console.error("Error fetching user assets:", error);
-        res.status(500).json({ message: "Failed to fetch user assets." });
-      }
+        res.send(assets);
+      
     });
-    app.post("/myAssets", async (req, res) => {
+    app.post("/myAssets",verifyToken, async (req, res) => {
       const asset = req.body;
       const result = await allRequestsCollection.insertOne(asset)
       res.send(result)
@@ -225,8 +226,8 @@ async function run() {
 
 
     // Cancel Asset Request (DELETE)
-    app.delete("/allRequests/:email/:assetId", async (req, res) => {
-      try {
+    app.delete("/allRequests/:email/:assetId",verifyToken, async (req, res) => {
+     
         const { email, assetId } = req.params;
 
         // Find and delete the asset in myAssetsCollection
@@ -235,25 +236,14 @@ async function run() {
           userEmail: email,
           status: "pending", // Ensure only pending requests can be deleted
         });
-
-        if (result.deletedCount === 0) {
-          return res
-            .status(400)
-            .json({ message: "Failed to cancel the request. It might not exist or is not pending." });
-        }
-
-        res.json({ message: "Asset request canceled successfully." });
-      } catch (error) {
-        console.error("Error canceling request:", error);
-        res.status(500).json({ message: "Failed to cancel the request." });
-      }
+        res.send(result);
     });
 
 
 
 
     // Return Asset
-    app.put("/allRequests/:email/:assetId/return", async (req, res) => {
+    app.put("/allRequests/:email/:assetId/return",verifyToken, async (req, res) => {
       try {
         const { email, assetId } = req.params;
 
@@ -295,30 +285,31 @@ async function run() {
     });
     // request related api
     // Get all asset requests
-    app.get("/allRequests", async (req, res) => {
-      try {
-        const { search = "", status = "all", email = "" } = req.query;
-
-        const query = {};
-        if (search) query.name = { $regex: search, $options: "i" }; // Search by name
-        if (status !== "all") query.status = status; // Filter by status
-        if (email) query.userEmail = email; // Filter by user email
-
-        const requests = await allRequestsCollection.find(query).toArray();
-        res.json(requests);
-      } catch (error) {
-        console.error("Error fetching requests:", error);
-        res.status(500).json({ message: "Failed to fetch requests." });
-      }
+    app.get("/allRequests", verifyToken, verifyHr, async (req, res) => {
+      const { search = "", status = "all", email = "", page = 1, limit = 10 } = req.query;
+    
+      const query = {};
+      if (search) query.name = { $regex: search, $options: "i" };
+      if (status !== "all") query.status = status;
+      if (email) query.userEmail = email;
+    
+      const totalRequests = await allRequestsCollection.countDocuments(query);
+      const requests = await allRequestsCollection
+        .find(query)
+        .skip((page - 1) * limit)
+        .limit(parseInt(limit))
+        .toArray();
+    
+      res.send({ requests, totalPages: Math.ceil(totalRequests / limit) });
     });
 
-    app.post("/allRequests", async (req, res) => {
-      const { name, type, userEmail, userName, requestDate, additionalNote, status } = req.body;
-
-      if (!name || !type || !userEmail || !requestDate || !status) {
+    app.post("/allRequests", verifyToken, async (req, res) => {
+      const { name, type, userEmail, userName, requestDate, additionalNote, status, assetId } = req.body;
+    
+      if (!name || !type || !userEmail || !requestDate || !status || !assetId) {
         return res.status(400).json({ message: "Missing required fields." });
       }
-
+    
       const newRequest = {
         name,
         type,
@@ -327,40 +318,59 @@ async function run() {
         requestDate,
         additionalNote,
         status,
+        assetId, // Include assetId in the request
       };
-
-      try {
-        const result = await allRequestsCollection.insertOne(newRequest);
-        res.status(201).json({ message: "Request created successfully", requestId: result.insertedId });
-      } catch (error) {
-        console.error("Error creating request:", error);
-        res.status(500).json({ message: "Failed to create request." });
-      }
+    
+      const result = await allRequestsCollection.insertOne(newRequest);
+      res.send(result);
     });
 
-    // Approve a request
-    app.put("/allRequests/:id/approve", async (req, res) => {
+    app.put("/allRequests/:id/approve",verifyToken,verifyHr, async (req, res) => {
       const { id } = req.params;
-
+    
       try {
-        const result = await allRequestsCollection.updateOne(
+        // Find the request by ID
+        const request = await allRequestsCollection.findOne({ _id: new ObjectId(id) });
+    
+        if (!request) {
+          return res.status(404).json({ message: "Request not found." });
+        }
+    
+        // Update the request status to 'approved'
+        const updateRequestResult = await allRequestsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: { status: "approved" } }
         );
-
-        if (result.matchedCount === 0) {
-          return res.status(404).json({ message: "Request not found." });
+    
+        if (updateRequestResult.matchedCount === 0) {
+          return res.status(404).json({ message: "Failed to update the request status." });
         }
-
-        res.json({ message: "Request approved successfully." });
+    
+        // Decrease the asset quantity in assetsCollection
+        const updateAssetResult = await assetsCollection.updateOne(
+          { _id: new ObjectId(request.assetId) },
+          { $inc: { quantity: -1 } }
+        );
+    
+        if (updateAssetResult.matchedCount === 0) {
+          // Revert the request status if asset update fails
+          await allRequestsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status: "pending" } }
+          );
+          return res.status(404).json({ message: "Asset not found or quantity update failed." });
+        }
+    
+        res.json({ message: "Request approved and asset quantity updated successfully." });
       } catch (error) {
         console.error("Error approving request:", error);
         res.status(500).json({ message: "Failed to approve the request." });
       }
     });
+    
 
     // Reject a request
-    app.put("/allRequests/:id/reject", async (req, res) => {
+    app.put("/allRequests/:id/reject",verifyToken,verifyHr, async (req, res) => {
       const { id } = req.params;
 
       try {
@@ -381,8 +391,8 @@ async function run() {
     });
 
     //team related api
-    app.get("/team", async (req, res) => {
-      try {
+    app.get("/team",verifyToken, async (req, res) => {
+      
         const { search = "", role = "all" } = req.query;
 
         const query = {
@@ -391,45 +401,34 @@ async function run() {
         };
 
         const members = await teamCollection.find(query).toArray();
-        res.json(members);
-      } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to fetch team members." });
-      }
+        res.send(members);
+      
     });
 
     // Add a new team member
-    app.post("/team", async (req, res) => {
-      try {
+    app.post("/team",verifyToken, async (req, res) => {
+      
         const newMember = req.body;
         const result = await teamCollection.insertOne(newMember);
-        res.status(201).json({ message: "Team member added successfully.", id: result.insertedId });
-      } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to add team member." });
-      }
+        res.send(result);
+       
     });
 
     // Update a team member
-    app.put("/team/:id", async (req, res) => {
-      try {
+    app.put("/team/:id",verifyToken, async (req, res) => {
+      
         const { id } = req.params;
         const updates = req.body;
         const result = await teamCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: updates }
         );
-        if (result.modifiedCount === 0) {
-          return res.status(404).json({ error: "Team member not found." });
-        }
-        res.json({ message: "Team member updated successfully." });
-      } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to update team member." });
-      }
+        
+      res.send(result);
     });
+    
     // POST to add a new employee
-    app.post("/employees", async (req, res) => {
+    app.post("/employees",verifyToken,verifyHr, async (req, res) => {
       const { name, email, status, department, dob, image } = req.body;
 
       if (!name || !email || !status || !department || !dob || !image) {
@@ -446,65 +445,42 @@ async function run() {
         createdAt: new Date(),
       };
 
-      try {
+      
         const result = await employeesCollection.insertOne(newEmployee);
-        res.status(201).json({ message: "Employee added successfully.", data: result.ops[0] });
-      } catch (error) {
-        console.error("Error adding employee:", error);
-        res.status(500).json({ message: "Failed to add employee." });
-      }
+        res.send(result);
+        
     });
+
 
 
     // Delete a team member
-    app.delete("/team/:id", async (req, res) => {
-      try {
+    app.delete("/team/:id",verifyToken, async (req, res) => {
+      
         const { id } = req.params;
         const result = await teamCollection.deleteOne({ _id: new ObjectId(id) });
-        if (result.deletedCount === 0) {
-          return res.status(404).json({ error: "Team member not found." });
-        }
-        res.json({ message: "Team member deleted successfully." });
-      } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to delete team member." });
-      }
+        res.send(result);
+        
     });
 
     // GET all employees with optional filters
-    app.get("/employees", async (req, res) => {
+    app.get("/employees",verifyToken,verifyHr, async (req, res) => {
       const { search, status, department } = req.query;
 
       const query = {};
-      if (search) query.name = { $regex: search, $options: "i" }; // Search by name
+      if (search) query.name = { $regex: search, $options: "i" };
       if (status && status !== "all") query.status = status;
       if (department) query.department = department;
-
-      try {
         const employees = await employeesCollection.find(query).toArray();
-        res.json(employees);
-      } catch (error) {
-        console.error("Error fetching employees:", error);
-        res.status(500).json({ message: "Failed to fetch employees." });
-      }
+        res.send(employees);
     });
 
     // DELETE an employee
-    app.delete("/employees/:id", async (req, res) => {
+    app.delete("/employees/:id",verifyToken,verifyHr, async (req, res) => {
       const { id } = req.params;
 
-      try {
-        const result = await employeesCollection.deleteOne({ _id: new ObjectId(id) });
-
-        if (result.deletedCount === 0) {
-          return res.status(404).json({ message: "Employee not found." });
-        }
-
-        res.json({ message: "Employee deleted successfully." });
-      } catch (error) {
-        console.error("Error deleting employee:", error);
-        res.status(500).json({ message: "Failed to delete the employee." });
-      }
+      
+      const result = await employeesCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
     });
 
 
