@@ -1,3 +1,4 @@
+
 const express = require('express')
 const cors = require('cors')
 const app = express()
@@ -6,17 +7,17 @@ const jwt = require('jsonwebtoken')
 const Stripe = require('stripe')
 require('dotenv').config()
 const cookieParser = require('cookie-parser')
-const { MongoClient, ServerApiVersion } = require('mongodb')
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
 
 // Configure CORS with specific origins
 app.use(cors({
-  origin: ['http://localhost:5173'],
+  origin: ['http://localhost:5173', 'http://localhost:3000'],
   credentials: true
 }))
 app.use(express.json())
 app.use(cookieParser())
 
-const uri = "mongodb+srv://assetMaster:uWtoDWa0uGz2HEg2@cluster0.nj1gb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+const uri = process.env.MONGODB_URI || "mongodb+srv://assetMaster:uWtoDWa0uGz2HEg2@cluster0.nj1gb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -31,42 +32,24 @@ const client = new MongoClient(uri, {
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
 // Verify JWT middleware
-// const verifyToken = (req, res, next) => {
-//   const token = req?.cookies?.token
-//   if (!token) {
-//     return res.status(401).send({ message: 'unauthorized access' })
-//   }
-//   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-//     if (err) {
-//       return res.status(403).send({ message: 'unauthorized user' })
-//     }
-//     req.user = decoded
-//     next()
-//   })
-// }
-
-// Verify HR middleware
-const verifyHR = async (req, res, next) => {
-  const email = req.user.email
-  const query = { email: email }
-  const user = await usersCollection.findOne(query)
-  const isHR = user?.role === 'hr'
-  if (!isHR) {
-    return res.status(403).send({ message: 'Forbidden access' })
+const verifyToken = (req, res, next) => {
+  const token = req?.cookies?.token
+  if (!token) {
+    return res.status(401).send({ message: 'unauthorized access' })
   }
-  next()
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).send({ message: 'unauthorized user' })
+    }
+    req.user = decoded
+    next()
+  })
 }
-// Verify Employee middleware
-const verifyEmployee = async (req, res, next) => {
-  const email = req.user.email
-  const query = { email: email }
-  const user = await usersCollection.findOne(query)
-  const isEmployee = user?.role === 'employee'
-}
+
 async function run() {
   try {
     // Connect the client to the server
-    await client.connect()
+    //await client.connect()
     
     // Get database collections
     const db = client.db('assetManagementDb')
@@ -75,6 +58,30 @@ async function run() {
     const allRequestsCollection = db.collection('allRequests')
     const myAssetsCollection = db.collection('myAssets')
     const employeesCollection = db.collection('employees')
+
+    // Verify HR middleware
+    const verifyHR = async (req, res, next) => {
+      const email = req.user.email
+      const query = { email: email }
+      const user = await usersCollection.findOne(query)
+      const isHR = user?.role === 'hr'
+      if (!isHR) {
+        return res.status(403).send({ message: 'Forbidden access' })
+      }
+      next()
+    }
+
+    // Verify Employee middleware
+    const verifyEmployee = async (req, res, next) => {
+      const email = req.user.email
+      const query = { email: email }
+      const user = await usersCollection.findOne(query)
+      const isEmployee = user?.role === 'employee'
+      if (!isEmployee) {
+        return res.status(403).send({ message: 'Forbidden access' })
+      }
+      next()
+    }
 
     // JWT related APIs
     app.post('/jwt', async (req, res) => {
@@ -98,14 +105,16 @@ async function run() {
         })
         .send({ success: true })
     })
+
     // Dashboard related APIs
-    app.get('/dashboard/hr-stats', verifyHR, async (req, res) => {
+    app.get('/dashboard/hr-stats', verifyToken, verifyHR, async (req, res) => {
       const email = req.user.email
       const query = { email: email }
       const user = await usersCollection.findOne(query)
       res.send(user)
     })
-    app.get('/dashboard/employee-stats', verifyEmployee, async (req, res) => {
+
+    app.get('/dashboard/employee-stats', verifyToken, verifyEmployee, async (req, res) => {
       const email = req.user.email
       const query = { email: email }
       const user = await usersCollection.findOne(query)
@@ -285,12 +294,12 @@ async function run() {
     })
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 })
-    console.log("Successfully connected to MongoDB!")
+   // await client.db("admin").command({ ping: 1 })
+    //console.log("Successfully connected to MongoDB!")
 
     // Start the server
     app.listen(port, () => {
-      console.log(`Server is running on port ${port}`)
+      //console.log(`Server is running on port ${port}`)
     })
 
   } catch (error) {
